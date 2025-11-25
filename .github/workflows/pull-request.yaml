@@ -11,7 +11,7 @@ jobs:
     uses: canonical/observability/.github/workflows/charm-pull-request.yaml@v1
     secrets: inherit
     with:
-      provider: lxd
+      provider: machine
 
   # charm-pull-request runs unit tests on python 3.8
   # Workaround to run unit-tests in python 3.12
