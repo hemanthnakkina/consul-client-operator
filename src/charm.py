@@ -52,9 +52,6 @@ class ConsulCharm(CharmBase):
         self.consul = ConsulEndpointsRequirer(charm=self)
         self.consul_notify = ConsulNotifyProvider(charm=self)
 
-        self.notify_snap_name: str | None = None
-        self.unix_socket_filepath: str | None = None
-
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.start, self._on_start)
         self.framework.observe(self.on.stop, self._on_stop)
@@ -101,7 +98,7 @@ class ConsulCharm(CharmBase):
         self.unit.status = MaintenanceStatus(f"Uninstalling {self.snap_name} snap")
         try:
             self._disconnect_snap_interface(
-                self.snap_name, self.notify_snap_name, CONSUL_SOCKET_INTERFACE
+                self.snap_name, self.consul_notify.snap_name, CONSUL_SOCKET_INTERFACE
             )
             self.snap.ensure(state=snap.SnapState.Absent)
             logging.debug(f"Unininstalling snap {self.snap_name}")
@@ -122,20 +119,17 @@ class ConsulCharm(CharmBase):
 
     def _on_socket_available(self, _):
         if self.consul_notify.is_ready:
-            self.notify_snap_name = self.consul_notify.snap_name
-            self.unix_socket_filepath = self.consul_notify.unix_socket_filepath
             logger.info(
-                f"Socket information available for sending NIC down alert: snap={self.notify_snap_name}, socket={self.unix_socket_filepath}"
+                f"Socket information available for sending NIC down alert: snap={self.consul_notify.snap_name}, socket={self.consul_notify.unix_socket_filepath}"
             )
 
             self._connect_snap_interface(
-                self.snap_name, self.notify_snap_name, CONSUL_SOCKET_INTERFACE
+                self.snap_name, self.consul_notify.snap_name, CONSUL_SOCKET_INTERFACE
             )
 
             self._configure()
 
     def _on_socket_gone(self, _):
-        self.unix_socket_filepath = None
         logger.info("Socket information gone, disabling TCP health check")
 
         self._configure()
@@ -182,7 +176,7 @@ class ConsulCharm(CharmBase):
                 self.snap_name,
                 self.consul.external_gossip_endpoints,
                 self.ports,
-                self.unix_socket_filepath,
+                self.consul_notify.unix_socket_filepath,
             ).build()
         else:
             logger.debug("Waiting for consul server address from consul-cluster relation")
@@ -247,7 +241,7 @@ class ConsulCharm(CharmBase):
                 # This avoids redundant connect calls when the snap is already present,
                 # reducing unnecessary operations on every config change.
                 self._connect_snap_interface(
-                    self.snap_name, self.notify_snap_name, CONSUL_SOCKET_INTERFACE
+                    self.snap_name, self.consul_notify.snap_name, CONSUL_SOCKET_INTERFACE
                 )
         except snap.SnapError as e:
             logger.info(f"Exception occurred while installing snap {self.snap_name}: {str(e)}")
