@@ -54,7 +54,7 @@ config:
     snap-channel:
       description: |
         consul-client snap channel version to install
-      default: "latest/edge"
+      default: "1.19/edge"
       type: string
     serf-lan-port:
       description: |
