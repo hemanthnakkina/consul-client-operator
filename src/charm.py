@@ -167,7 +167,10 @@ class ConsulCharm(CharmBase):
     def _update_consul_config(self) -> bool:
         """Update consul client config."""
         if self.consul.datacenter and self.consul.external_gossip_endpoints:
-            enable_tcp_check = self.consul_notify.is_ready
+            enable_tcp_check = (
+                bool(self.config.get("enable-tcp-health-check", False))
+                and self.consul_notify.is_ready
+            )
 
             constructed_consul_config = ConsulConfigBuilder(
                 self.bind_address,
