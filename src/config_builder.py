@@ -101,6 +101,8 @@ class ConsulConfigBuilder:
         """Copy the TCP health check Python script to the data directory."""
         tcp_check_script_path = Path(__file__).parent / "tcp_health_check.py"
         destination_path = self.consul_tcp_check
+        logger.info(f"Creating parent directories for {Path(destination_path)} if does not exist")
+        Path(destination_path).parent.mkdir(parents=True, exist_ok=True)
 
         if not destination_path.exists():
             try:
