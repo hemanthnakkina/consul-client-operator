@@ -61,8 +61,8 @@ config:
         Serf lan port number to be used.
       type: int
       default: 8301
-    enable-tcp-health-check:
+    enable-health-check:
       description: |
-        Enable TCP Health check in consul config.
+        Enable Health check in consul config.
       type: boolean
       default: true
