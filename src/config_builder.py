@@ -39,19 +39,21 @@ class ConsulConfigBuilder:
         self,
         bind_address: str | None,
         datacenter: str,
-        tcp_check: bool,
+        health_check: bool,
         snap_name: str,
         consul_servers: list[str],
         ports: Ports,
         unix_socket_filepath: str | None = None,
+        healthcheck_endpoints: list[str] | None = None,
     ):
         self.bind_address = bind_address or "0.0.0.0"
         self.datacenter = datacenter
-        self.tcp_check = tcp_check
+        self.health_check = health_check
         self.snap_name = snap_name
         self.consul_servers = consul_servers
         self.ports = ports
         self.unix_socket_filepath = unix_socket_filepath
+        self.healthcheck_endpoints = healthcheck_endpoints
 
     def build(self) -> dict:
         """Build consul client config file.
@@ -76,11 +78,14 @@ class ConsulConfigBuilder:
             "retry_join": self.consul_servers,
         }
 
-        if self.tcp_check and self.unix_socket_filepath:
-            self._write_tcp_check_script()
+        if self.health_check and self.unix_socket_filepath:
+            self._write_health_check_script()
             config["enable_script_checks"] = True
 
-            args = ["python3", str(self.consul_tcp_check), *self.consul_servers]
+            if self.healthcheck_endpoints:
+                args = ["python3", str(self.consul_health_check), *self.healthcheck_endpoints]
+            else:
+                args = ["python3", str(self.consul_health_check), *self.consul_servers]
             args.extend(["--socket-path", self.unix_socket_filepath])
 
             config["services"] = [
@@ -97,22 +102,22 @@ class ConsulConfigBuilder:
             ]
         return config
 
-    def _write_tcp_check_script(self):
+    def _write_health_check_script(self):
         """Copy the TCP health check Python script to the data directory."""
-        tcp_check_script_path = Path(__file__).parent / "tcp_health_check.py"
-        destination_path = self.consul_tcp_check
+        health_check_script_path = Path(__file__).parent / "tcp_health_check.py"
+        destination_path = self.consul_health_check
         logger.info(f"Creating parent directories for {Path(destination_path)} if does not exist")
         Path(destination_path).parent.mkdir(parents=True, exist_ok=True)
 
         if not destination_path.exists():
             try:
-                shutil.copy(tcp_check_script_path, destination_path)
+                shutil.copy(health_check_script_path, destination_path)
                 logger.info(f"TCP health check script copied to {destination_path}")
             except Exception as e:
                 logger.error(f"Failed to copy TCP health check script: {e}")
                 raise
 
     @property
-    def consul_tcp_check(self) -> Path:
+    def consul_health_check(self) -> Path:
         """Return the Consul TCP check script path."""
         return Path(f"/var/snap/{self.snap_name}/common/consul/data/tcp_health_check.py")
