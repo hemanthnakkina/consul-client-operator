@@ -128,7 +128,7 @@ def test_consul_notify_socket_available(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -204,7 +204,7 @@ def test_consul_notify_socket_gone(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -266,7 +266,7 @@ def test_consul_notify_relation_properties(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -322,7 +322,7 @@ def test_socket_config_persists_across_events(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -432,7 +432,7 @@ def test_health_check_disabled_by_config(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -504,7 +504,7 @@ def test_health_check_enabled_by_default(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -620,7 +620,7 @@ def test_health_check_can_be_toggled(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -707,7 +707,7 @@ def test_health_check_uses_healthcheck_endpoints_when_available(
     join_server_addresses = ["10.20.0.10:8301", "10.20.0.11:8301"]
     healthcheck_addresses = ["10.30.0.10:8301", "10.30.0.11:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -786,7 +786,7 @@ def test_health_check_falls_back_to_gossip_endpoints(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301", "10.20.0.11:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -861,7 +861,7 @@ def test_health_check_with_empty_healthcheck_endpoints(
     datacenter = "test-dc"
     join_server_addresses = ["10.20.0.10:8301"]
     snap_name = "test-snap"
-    socket_path = "data/socket.sock"
+    socket_path = "shutdown.sock"
 
     read_config.return_value = {
         "bind_addr": "10.10.0.10",
@@ -1173,3 +1173,103 @@ def test_ensure_snap_present_holds_snap(harness: Harness[ConsulCharm], snap):
         harness.charm._ensure_snap_present()
 
     snap_instance.hold.assert_called()
+
+
+def test_consul_notify_socket_path_backward_compat(
+    harness: Harness[ConsulCharm],
+    snap,
+    read_config,
+    write_config,
+    connect_snap_interface,
+    write_health_check_script,
+):
+    """Old-format socket paths are normalized to the bare file name.
+
+    Backward-compatibility / upgrade scenario: a requirer (e.g. an
+    openstack-hypervisor charm that predates the content-interface socket-path
+    fix) publishes the full relative path "data/shutdown.sock" into the
+    consul-notify databag. When only the consul-client charm is refreshed the
+    databag still holds this stale value. The ConsulNotifyProvider must normalize
+    it to the bare file name so the rendered health-check path is
+    "hypervisor/shutdown.sock" and not the broken "hypervisor/data/shutdown.sock".
+    """
+    datacenter = "test-dc"
+    join_server_addresses = ["10.20.0.10:8301"]
+    snap_name = "test-snap"
+    old_format_socket_path = "data/shutdown.sock"
+
+    harness.add_relation(
+        "consul-cluster",
+        "consul-server",
+        app_data={
+            "datacenter": datacenter,
+            "internal_gossip_endpoints": json.dumps(None),
+            "external_gossip_endpoints": json.dumps(join_server_addresses),
+            "internal_http_endpoint": json.dumps(None),
+            "external_http_endpoint": json.dumps(None),
+        },
+    )
+    harness.add_relation(
+        "consul-notify",
+        "test-app",
+        app_data={
+            "snap_name": snap_name,
+            "unix_socket_filepath": old_format_socket_path,
+        },
+    )
+
+    harness.begin_with_initial_hooks()
+
+    charm = harness.charm
+    assert charm.consul_notify.unix_socket_filepath == "shutdown.sock"
+
+    config_dict = json.loads(write_config.call_args[0][1])
+    args = config_dict["services"][0]["check"]["args"]
+    socket_path = args[args.index("--socket-path") + 1]
+    assert socket_path == f"{ConsulConfigBuilder.HYPERVISOR_SOCKET_PREFIX}/shutdown.sock"
+
+
+@pytest.mark.parametrize("invalid_socket_path", ["/", ".", ".."])
+def test_consul_notify_socket_path_without_filename_is_none(
+    harness: Harness[ConsulCharm],
+    snap,
+    read_config,
+    write_config,
+    connect_snap_interface,
+    write_health_check_script,
+    invalid_socket_path,
+):
+    """Values with no usable file name component are treated as missing.
+
+    A requirer publishing a value such as "/", ".", ".." or an empty string has
+    no meaningful socket file name. The provider must return None rather than an
+    empty/invalid basename that would render a bogus "hypervisor/" socket path.
+    """
+    datacenter = "test-dc"
+    join_server_addresses = ["10.20.0.10:8301"]
+
+    harness.add_relation(
+        "consul-cluster",
+        "consul-server",
+        app_data={
+            "datacenter": datacenter,
+            "internal_gossip_endpoints": json.dumps(None),
+            "external_gossip_endpoints": json.dumps(join_server_addresses),
+            "internal_http_endpoint": json.dumps(None),
+            "external_http_endpoint": json.dumps(None),
+        },
+    )
+    harness.add_relation(
+        "consul-notify",
+        "test-app",
+        app_data={
+            "snap_name": "test-snap",
+            "unix_socket_filepath": invalid_socket_path,
+        },
+    )
+
+    harness.begin_with_initial_hooks()
+
+    charm = harness.charm
+    assert charm.consul_notify.unix_socket_filepath is None
+    assert charm.consul_notify.is_ready is False
