@@ -100,6 +100,7 @@ class MyRequirerCharm(CharmBase):
 """
 
 import logging
+from pathlib import PurePosixPath
 
 from ops.charm import CharmBase, RelationBrokenEvent, RelationChangedEvent, RelationEvent
 from ops.framework import EventSource, Object, ObjectEvents
@@ -114,7 +115,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 DEFAULT_RELATION_NAME = "consul-notify"
 
@@ -209,13 +210,28 @@ class ConsulNotifyProvider(Object):
 
     @property
     def unix_socket_filepath(self) -> str | None:
-        """Return UNIX socket filepath from requirer app data.
+        """Return the UNIX socket file name from requirer app data.
+
+        Backward compatibility: older requirers (e.g. an openstack-hypervisor
+        charm that predates the content-interface socket-path fix) publish a
+        value that contains a directory component such as "data/shutdown.sock".
+        The socket is bind-mounted directly under the content-interface
+        directory, so only the file name is meaningful here. Normalize to the
+        basename so consumers always receive just the socket file name,
+        regardless of the format published by the requirer.
 
         Returns:
-            The path to the UNIX socket file, or None if not available
+            The UNIX socket file name, or None if not available or if the
+            published value has no usable file name component (e.g. "/", ".").
         """
         data = self._get_app_databag_from_relation()
-        return data.get("unix_socket_filepath")
+        filepath = data.get("unix_socket_filepath")
+        if not filepath:
+            return None
+        filename = PurePosixPath(filepath).name
+        if filename in ("", ".", ".."):
+            return None
+        return filename
 
     @property
     def is_ready(self) -> bool:
